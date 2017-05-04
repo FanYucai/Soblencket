@@ -47,7 +47,7 @@ struct ProxyParam{
 
 bool InitSocket();
 void ParseHttpHead(char *buffer, HttpHeader* httpHeader);
-bool ConnectToServer(int serverSocket, char* host);
+int ConnectToServer(char* host);
 unsigned int ProxyThread(ProxyParam* lpParameter);
 
 
@@ -64,11 +64,11 @@ int main(int argc, char* argv[])
     //printf("%d\n",INADDR_ANY);
     server_sockaddr.sin_addr.s_addr = htonl(INADDR_ANY);
     if(bind(ss, (struct sockaddr* ) &server_sockaddr, sizeof(server_sockaddr))==-1) {
-        perror("bind");
+        perror("Error: bind");
         exit(1);
     }
     if(listen(ss, QUEUE) == -1) {
-        perror("listen");
+        perror("Error: listen");
         exit(1);
     }
     printf("代理服务器正在运行，监听端口 %d\n",ProxyPort);
@@ -80,9 +80,10 @@ int main(int argc, char* argv[])
         // 成功返回非负描述字，出错返回-1
         conn = accept(ss, NULL, NULL);
         if( conn < 0 ) {
-            perror("connect");
+            perror("Error: connect");
             exit(1);
         }
+        printf("successfully accepted...");
         lpProxyParam = new ProxyParam;
         if(lpProxyParam == NULL){continue; }
         lpProxyParam->clientSocket = conn;
@@ -107,22 +108,25 @@ int main(int argc, char* argv[])
 unsigned int ProxyThread(ProxyParam* lpParameter){
     char Buffer[MAXSIZE];
     char *CacheBuffer;
-    // ZeroMemory(Buffer,MAXSIZE);
+    printf("hahahahahahaha\n");
+    memset(Buffer, 0, MAXSIZE);
     int recvSize;
     int ret;
     recvSize = recv(((ProxyParam*)lpParameter)->clientSocket,Buffer,MAXSIZE,0);
     if(recvSize <= 0){
         exit(1);
     }
-   
+
     HttpHeader* httpHeader = new HttpHeader();
     CacheBuffer = new char[recvSize + 1];
-    memset(CacheBuffer, 0, recvSize + 1); 
+    memset(CacheBuffer, 0, recvSize + 1);
     memcpy(CacheBuffer,Buffer,recvSize);
     ParseHttpHead(CacheBuffer,httpHeader);
+    printf("@#$&*()_\n");
     delete CacheBuffer;
 
-    if(!ConnectToServer(((ProxyParam*)lpParameter)->serverSocket,httpHeader->host)) {
+    // ########## wrong part #############
+    if(ConnectToServer(httpHeader->host) < 0) {
         exit(1);
     }
     printf("代理连接主机 %s 成功\n",httpHeader->host);
@@ -139,7 +143,7 @@ unsigned int ProxyThread(ProxyParam* lpParameter){
     error:
         printf("Error: -123; 关闭套接字\n");
         close(((ProxyParam*)lpParameter)->clientSocket);
-        close(((ProxyParam*)lpParameter)->serverSocket);        
+        close(((ProxyParam*)lpParameter)->serverSocket);
     return 0;
 }
 
@@ -168,7 +172,9 @@ void ParseHttpHead(char *buffer,HttpHeader * httpHeader){
     }
     printf("%s\n",httpHeader->url);
     p = strtok_r(NULL,delim,&ptr);
+
     while(p){
+        printf("%s\n *****************", p);
         switch(p[0]){
             case 'H'://Host
               memcpy(httpHeader->host,&p[6],strlen(p) - 6);
@@ -198,24 +204,32 @@ void ParseHttpHead(char *buffer,HttpHeader * httpHeader){
 // Parameter: SOCKET * serverSocket
 // Parameter: char * host
 //************************************
-bool ConnectToServer(int serverSocket, char* host){
-    sockaddr_in serverAddr;
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_port = htons(HTTP_PORT);
+int ConnectToServer(char* host){
     struct hostent* host123 = gethostbyname(host);
-    if(!host123){
-        return false;
-    }
     in_addr Inaddr=*( (in_addr*) *host123->h_addr_list);
+    printf("%d\n", Inaddr.s_addr);
+
+    // define socketfd
+    int socketfd = socket(AF_INET,SOCK_STREAM,0);
+
+    // define sockaddr_in
+    struct sockaddr_in serverAddr;
+    memset(&serverAddr,0,sizeof(serverAddr));
+    serverAddr.sin_family = AF_INET;
     serverAddr.sin_addr.s_addr = inet_addr(inet_ntoa(Inaddr));
-    serverSocket = socket(AF_INET,SOCK_STREAM,0);
-    // if(serverSocket == INVALID_SOCKET){
-    //     return FALSE;
-    // }
-    if (connect(serverSocket, (struct sockaddr *)&serverAddr, sizeof(serverAddr)) < 0)
+    serverAddr.sin_addr.s_addr = inet_addr("119.75.217.109");
+    serverAddr.sin_port = htons(HTTP_PORT);
+
+    printf("before 123\n");
+    int status = connect(socketfd, (struct sockaddr *)&serverAddr, sizeof(serverAddr));
+    printf("after 123\n");
+    printf("status = %d\n", status);
+
+    if(status != 0)
     {
-        perror("connect");
+        close(socketfd);
+        printf("Error: in ConnectToServer");
         exit(1);
     }
-    return true;
+    return socketfd;
 }
