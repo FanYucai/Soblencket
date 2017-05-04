@@ -94,6 +94,8 @@ int main(int argc, char* argv[])
     }
     close(conn);
     close(ss);
+    // char* h = "www.baidu.com";
+    // ConnectToServer(h);
     return 0;
 }
 
@@ -217,7 +219,7 @@ int ConnectToServer(char* host){
     memset(&serverAddr,0,sizeof(serverAddr));
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_addr.s_addr = inet_addr(inet_ntoa(Inaddr));
-    serverAddr.sin_addr.s_addr = inet_addr("119.75.217.109");
+    // serverAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
     serverAddr.sin_port = htons(HTTP_PORT);
 
     printf("before 123\n");
