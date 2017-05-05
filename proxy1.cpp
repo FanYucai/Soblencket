@@ -13,9 +13,10 @@
 #include <thread>
 #include <iostream>
 #include <netdb.h>
+#include <pthread.h>
 
 #define MAXSIZE 65507 //发送数据报文的最大长度
-#define HTTP_PORT 8888 //http 服务器端口
+#define HTTP_PORT 80 //http 服务器端口
 #define QUEUE 20
 
 //Http 重要头部数据
@@ -48,7 +49,7 @@ struct ProxyParam{
 bool InitSocket();
 void ParseHttpHead(char *buffer, HttpHeader* httpHeader);
 int ConnectToServer(char* host);
-unsigned int ProxyThread(ProxyParam* lpParameter);
+void* ProxyThread(void* lpParameter);
 
 
 int main(int argc, char* argv[])
@@ -76,21 +77,22 @@ int main(int argc, char* argv[])
     int conn;
     // HANDLE hThread;
     // DWORD dwThreadID;
+    
     while(1) {
         // 成功返回非负描述字，出错返回-1
+        pthread_t thid1;
         conn = accept(ss, NULL, NULL);
         if( conn < 0 ) {
             perror("Error: connect");
             exit(1);
         }
-        printf("successfully accepted...");
         lpProxyParam = new ProxyParam;
         if(lpProxyParam == NULL){continue; }
         lpProxyParam->clientSocket = conn;
-        ProxyThread(lpProxyParam);
+        pthread_create(&thid1,NULL, ProxyThread, (void*)lpProxyParam);
         // hThread = (HANDLE)_beginthreadex(NULL, 0, &ProxyThread,(LPVOID)lpProxyParam, 0, 0);
         // CloseHandle(hThread);
-        // Sleep(200);
+        sleep(200);
     }
     close(conn);
     close(ss);
@@ -107,15 +109,17 @@ int main(int argc, char* argv[])
 // Qualifier: 线程执行函数
 // Parameter: LPVOID lpParameter
 //************************************
-unsigned int ProxyThread(ProxyParam* lpParameter){
+void* ProxyThread(void* lpParameter){
     char Buffer[MAXSIZE];
     char *CacheBuffer;
     printf("hahahahahahaha\n");
     memset(Buffer, 0, MAXSIZE);
+    
     int recvSize;
     int ret;
     recvSize = recv(((ProxyParam*)lpParameter)->clientSocket,Buffer,MAXSIZE,0);
     if(recvSize <= 0){
+        printf("hahahahahahaha\n");
         exit(1);
     }
 
@@ -124,29 +128,61 @@ unsigned int ProxyThread(ProxyParam* lpParameter){
     memset(CacheBuffer, 0, recvSize + 1);
     memcpy(CacheBuffer,Buffer,recvSize);
     ParseHttpHead(CacheBuffer,httpHeader);
-    printf("@#$&*()_\n");
     delete CacheBuffer;
 
-    // ########## wrong part #############
-    if(ConnectToServer(httpHeader->host) < 0) {
+    
+    //#################### connectToServer #######################
+    int connRes = 0;
+    struct hostent* host123 = gethostbyname(httpHeader->host);
+    in_addr Inaddr=*( (in_addr*) *host123->h_addr_list);
+    printf("%d\n", Inaddr.s_addr);
+
+    // define socketfd
+    int socketfd = socket(AF_INET,SOCK_STREAM,0);
+
+    // define sockaddr_in
+    struct sockaddr_in serverAddr;
+    memset(&serverAddr,0,sizeof(serverAddr));
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_addr.s_addr = inet_addr(inet_ntoa(Inaddr));
+    // serverAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    serverAddr.sin_port = htons(HTTP_PORT);
+
+    if(connect(socketfd, (struct sockaddr *)&serverAddr, sizeof(serverAddr)) != 0)
+    {
+        close(socketfd);
+        printf("Error: in ConnectToServer");
+        connRes = -1;
         exit(1);
     }
+    else
+        ((ProxyParam*)lpParameter)->serverSocket = socketfd;
+
+    //##########################################################
+
     printf("代理连接主机 %s 成功\n",httpHeader->host);
+
+    printf("___________________________ BUFFER ___________________________\n%s\n___________________________\n", Buffer);
     //将客户端发送的 HTTP 数据报文直接转发给目标服务器
-    ret = send(((ProxyParam *)lpParameter)->serverSocket,Buffer,strlen(Buffer) + 1,0);
+    ret = send(((ProxyParam*)lpParameter)->serverSocket,Buffer,strlen(Buffer) + 1,0);
     //等待目标服务器返回数据
     recvSize = recv(((ProxyParam*)lpParameter)->serverSocket,Buffer,MAXSIZE,0);
     if(recvSize <= 0){
+        printf("wrong !\n");
         goto error;
     }
+    printf("recvSize = %d\n", recvSize);
     //将目标服务器返回的数据直接转发给客户端
     ret = send(((ProxyParam*)lpParameter)->clientSocket,Buffer,sizeof(Buffer),0);
     //错误处理
-    error:
-        printf("Error: -123; 关闭套接字\n");
-        close(((ProxyParam*)lpParameter)->clientSocket);
-        close(((ProxyParam*)lpParameter)->serverSocket);
-    return 0;
+    printf("sendToClientSize = %d\n", ret);
+    
+error:
+    printf("关闭套接字\n");
+    // sleep(200);
+    close(((ProxyParam*)lpParameter)->clientSocket);
+    close(((ProxyParam*)lpParameter)->serverSocket);
+    return NULL;
 }
 
 
@@ -222,16 +258,11 @@ int ConnectToServer(char* host){
     // serverAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
     serverAddr.sin_port = htons(HTTP_PORT);
 
-    printf("before 123\n");
-    int status = connect(socketfd, (struct sockaddr *)&serverAddr, sizeof(serverAddr));
-    printf("after 123\n");
-    printf("status = %d\n", status);
-
-    if(status != 0)
+    if(connect(socketfd, (struct sockaddr *)&serverAddr, sizeof(serverAddr)) != 0)
     {
         close(socketfd);
         printf("Error: in ConnectToServer");
-        exit(1);
+        return -1;
     }
     return socketfd;
 }

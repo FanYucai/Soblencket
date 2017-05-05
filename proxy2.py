@@ -1,33 +1,20 @@
+# -*- coding: utf-8 -*-
+
 import socket
 import threading
 import re
 cache={}
 threads=[]
-dspoofurl='www.provence-tomato.com'
-def s2cworker(nsock,connection):
-    print "receiving data from server"
-    while True:
-        print "----------receive------------"
-        ssdata = nsock.recv(65535)
-        #print len(ssdata)
-        #print 'ssdata:'+ssdata
 
-        if ssdata and len(ssdata):
-            connection.sendall(ssdata)                    
-        else:
-            break
-    print "exit thread"
-    nsock.close()
-    connection.close()
-    return 
-
-def c2sworker(connection):
+def asClient(connection):
     try:
         while True:
             data = connection.recv(65535)   
             if not (data and len(data)):
                 break
-            ctoken = re.search(r'If-Modified-Since:\s*([^\r]+)\s*\r\n',data)
+            print "############ raw HTTP req: ############\n"
+            print data
+            print "#######################################"
             cturl = re.search(r'GET\s+([^\s]+)\s+HTTP[^\r]*\r\n',data)
             if cturl:
                 cturl = cturl.group(1)
@@ -36,58 +23,31 @@ def c2sworker(connection):
 
             if remoteaddr:
                 remoteaddr=remoteaddr.group(1)
-                print remoteaddr
-
+                print "remoteaddr = %s\n" % (remoteaddr)
 
             else:
                 break   
             #print remoteaddr
 
-            if cturl and ctoken == None: #at the same time resend packet to the server
+            if cturl == None: #at the same time resend packet to the server
                 if cturl in cache:
-                    print 
-                    print 'Yay!'+cturl
-                    print 'Cached'
-                    print 
                     connection.sendall(cache[cturl][0])
-                    cnm = data
-                    data = cnm[0:cnm.find('\r\n\r\n')] +'\r\nIf-Modified-Since: ' + cache[cturl][1] +cnm[cnm.find('\r\n\r\n'):]
-                    #print repr(data)
                     cfg=True         
-                    # t = threading.Thread(target=checkcache,args=(remoteaddr,cturl,data)) 
-                    # t.start() 
                     continue          
-            elif ctoken:#return 304
-                #print '#############################'
-                print cturl
-                print 'cached:',(cturl in cache)
-                if cturl and (cturl in cache):
-                    print "******************************"
-                    tmpdata = 'HTTP/1.1 304 Not Modified\r\nDate: '+ cache[cturl][1]+  '\r\nServer: Apache\r\nConnection: Keep-Alive\r\nExpires: Sun, 11 May 2025 17:30:46 GMT\r\nCache-Control: max-age=315360000\r\n\r\n'
-                    #print repr(tmpdata)
-                    connection.sendall( tmpdata)                
-                    cfg=True
-                    # t = threading.Thread(target=checkcache,args=(remoteaddr,cturl,data)) 
-                    # t.start()
-                    continue
+
             nsock = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-               
             nsaddr = (remoteaddr,80)
-             
             nsock.connect(nsaddr)
             nsock.settimeout(1.5)
             nsock.sendall(data)
             #print "receiving data from server"
             rawdata = ''
-            #print "**********GlobRecStart***********"
+            
             try:
                 while True:
                     ssdata = nsock.recv(65535)
                     #print 'hehe'
                     sslen = re.search(r'Content-Length:\s*([0-9]+)\s*\r\n',ssdata)
-                    etoken = re.search(r'Last-Modified:\s*([^\r]+)\s*\r\n',ssdata)
-                    if etoken:
-                        etoken=etoken.group(1)
 
                     if sslen:
                         sslen = int(sslen.group(1))
@@ -96,7 +56,6 @@ def c2sworker(connection):
                         sslen -= len(ssdata[ssdata.find('\r\n\r\n')+4:])
                         if not cfg:
                             connection.sendall(ssdata)
-                        #print repr(ssdata)
                         #print 'ssdata:'+ssdata
                     else:                        
                         if ssdata and len(ssdata):
@@ -118,17 +77,6 @@ def c2sworker(connection):
                                 connection.sendall(ssdata)                    
                         else:                
                             raise
-                    #print repr(rawdata)
-                    #print '1$$$$$$$$$$$$$$$$$$$$$'
-                    print etoken
-                    print cturl
-                    if etoken and cturl :
-                        #print '$$$$$$$$$$$$$$$$$$$$$'
-                        if cturl in cache and cache[cturl][1]!=etoken:
-                            cache[cturl]=(rawdata,etoken)
-                        else:
-                            if not (cturl in cache):
-                                cache[cturl]=(rawdata,etoken)
             except:
                 pass
             finally:                
@@ -141,18 +89,14 @@ def c2sworker(connection):
 
 
 sock = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-server_address = ('localhost',8889)
-#print >>sys.stderr, 'starting up on %s port %s' % server_address
+server_address = ('localhost',16270)
 sock.bind(server_address)
 sock.listen(100)
+print  '套接字已建立，开始监听 %d 端口...\n' % (8889)
+
 while True:
-    #print  'waiting for a connection'
     connection , client_address =  sock.accept()
-    # if client_address[0] in blockeduserlist:
-    #     connection.close()
-    #     print client_address[0] + " is forbiddened!"
-    #     continue
     connection.settimeout(1.5)
-    print  'connection from',client_address
-    t = threading.Thread(target=c2sworker,args=(connection,)) 
+    print  '建立连接，客户端地址为: ',client_address
+    t = threading.Thread(target=asClient,args=(connection,)) 
     t.start()
