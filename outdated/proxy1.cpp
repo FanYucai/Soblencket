@@ -165,18 +165,18 @@ void* ProxyThread(void* lpParameter){
     printf("___________________________ BUFFER ___________________________\n%s\n___________________________\n", Buffer);
     //将客户端发送的 HTTP 数据报文直接转发给目标服务器
     ret = send(((ProxyParam*)lpParameter)->serverSocket,Buffer,strlen(Buffer) + 1,0);
+    sleep(20);
     //等待目标服务器返回数据
     recvSize = recv(((ProxyParam*)lpParameter)->serverSocket,Buffer,MAXSIZE,0);
     if(recvSize <= 0){
         printf("wrong !\n");
         goto error;
     }
-    printf("recvSize = %d\n", recvSize);
+
+    printf("S:%d, C:%d\n", ((ProxyParam*)lpParameter)->serverSocket, ((ProxyParam*)lpParameter)->clientSocket);
     //将目标服务器返回的数据直接转发给客户端
     ret = send(((ProxyParam*)lpParameter)->clientSocket,Buffer,sizeof(Buffer),0);
     //错误处理
-    printf("sendToClientSize = %d\n", ret);
-    
 error:
     printf("关闭套接字\n");
     // sleep(200);
