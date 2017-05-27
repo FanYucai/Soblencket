@@ -1,173 +1,112 @@
 # -*- coding: utf-8 -*-
 
+
 from socket import *
+import random 
+import time
 import select
-import time 
-def seqIsAvailable():
-    global nextseqnum, base, SEND_WIND_SIZE, SEQ_SIZE, isACK
-    if (nextseqnum>=base):
-        if (nextseqnum-base<=SEND_WIND_SIZE-1 and isACK[nextseqnum]):
-            return True
-    elif (nextseqnum+SEQ_SIZE-base<=SEND_WIND_SIZE-1 and isACK[nextseqnum]):
+
+
+def displayHelp():
+    print "-------------"
+    print " -time"
+    print " -quit"
+    print " -testgbn[][]"
+    print "-------------\n"
+
+def ifLost(ratio):
+    tmp = random.uniform(0, 1)
+    if (tmp<ratio):
         return True
-    return False 
-
-def AckHandle(str_num):
-    global base, isACK, SEQ_SIZE, nextseqnum
-    ackn = ord(str_num) - 1
-    print "Recv a ack seq: %d" % ackn
-    if (base <= ackn):
-        #accumulative ack
-        for i in range(base, ackn+1):
-            isACK[i] = True
-        base = (ackn+1) % SEQ_SIZE
     else:
-        #ring back
-        for i in range(base, SEQ_SIZE):
-            isACK[i] = True
-        for i in range(0, ackn+1):
-            isACK[i] = True
-        base = ackn+1
-    print "base is %d" % base
-    print "nextseqnum is %d" % nextseqnum
+        return False 
 
-def retransmit():
-    #may have problems
-    global base, nextseqnum, isACK, total_seq, SEND_WIND_SIZE, SEQ_SIZE
-    print "start retransmission"
-    print "before retransmission total_seq = %d" % total_seq
-    #set ack True for sending purpose 
-#    for i in range(SEND_WIND_SIZE):
-#        isACK[(i+base)%SEQ_SIZE] = True
-#    nextseqnum = base
-#    total_seq = total_seq - SEND_WIND_SIZE
-    if (nextseqnum >= base):
-        step = nextseqnum - base
-    else:
-        step = nextseqnum + SEQ_SIZE - base
-    for i in range(step):
-        isACK[(i+base)%SEQ_SIZE] = True
-    print "step is %d" % step 
-    total_seq = total_seq - step 
-    print "after retransmit total_seq = %d" % total_seq
-    nextseqnum = base
-    
-#parameter definition
-#send data domain size 
+ 
+SEQ_SIZE = 20
+flag1 = True
+displayHelp()
+random.seed()
+fp = open('recv.txt', 'w')
+serverName = 'localhost'
+serverPort = 8888
+clientSocket = socket(AF_INET, SOCK_DGRAM)
 BUFFER_LENGTH = 1024
-SEND_LENGTH = 1000
+pack_loss_ratio = 0.2
+ack_loss_ratio = 0.2
 recv_buffer = ""
 send_buffer = ""
-timeout_in_seconds = 0.01
-#Sequence size 
-SEQ_SIZE = 20
-SEND_WIND_SIZE = 10
-serverPort = 9000
-isACK = [True for i in range(SEQ_SIZE)]
-serverSocket = socket(AF_INET, SOCK_DGRAM)
-serverSocket.bind(('',serverPort))
-base = 0
-nextseqnum = 0 
-total_seq = 0
-isFinished = False
+SEQ_SIZE = 10
+TIME_LIMIT = 5
+serverAddr = (serverName, serverPort)
 
-def main():
-    global BUFFER_LENGTH, recv_buffer, send_buffer, timeout_in_seconds, SEQ_SIZE, serverPort, isACK, nextseqnum, base, isFinished, total_seq
-    #set serverSocket is nonblocking 
-    fp = open("test.txt", "r")
-    content = ''.join(fp.readlines())
-    print 'len(content) is %d' % len(content)
-    serverSocket.setblocking(0)
-    print "The server is ready to receive"
-    while (not isFinished):
-        #receive connect request from client
-        ready = select.select([serverSocket], [], [], timeout_in_seconds)
-        if ready[0]:
-            recv_buffer, clientAddr = serverSocket.recvfrom(BUFFER_LENGTH)
-        else:
-            # receives the data from client 
-            time.sleep(0.5)
-            continue
-        #command receive 
-        print "recv command from client %s" % recv_buffer 
-        if (recv_buffer == "-time"):
-            send_buffer = time.asctime(time.localtime(time.time()))
-            serverSocket.sendto(send_buffer, clientAddr)
-        elif (recv_buffer == '-quit'):
-            send_buffer = "Good bye~"
-            serverSocket.sendto(send_buffer, clientAddr)
-        elif (recv_buffer == '-testgbn'):
-            wait_counter = 0
-            print "Begain to test GBN protocol,please don't abort the process\n"
-            print "Shank hands state"
-            stage = 0
-            isRun = True
-            while(isRun):
-                if (stage == 0):
-                    #sender A 
-                    send_buffer = "A"
-                    serverSocket.sendto(send_buffer, clientAddr)
-                    time.sleep(0.5)
-                    stage = 1
-                elif (stage == 1):
-                    #wait for receive "B"
-                    ready = select.select([serverSocket], [], [], timeout_in_seconds)
-                    if (ready[0]):
-                        recv_buffer, clientAddr = serverSocket.recvfrom(BUFFER_LENGTH)
-                        if (recv_buffer[0] == "B"):
-                            print "Begin file transfer"
-                            base = 0
-                            nextseqnum = 0
-                            wait_counter = 0
-                            total_seq = 0           #total receive package number 
-                            stage = 2
-                    else:
-                        wait_counter = wait_counter + 1
-                        if(wait_counter > 20):
-                            #connection failed 
-                            isRun = False
-                            print "Connection setup timeout!"
-                        time.sleep(0.5)
-                        continue 
-                elif (stage == 2):
-                    #send one packet each time
-                    if (seqIsAvailable()):
-                        print "total_seq = %d, base = %d, nextseqnum = %d" % (total_seq, base, nextseqnum)
-                        #send data 
-                        #since 0 indicates error transmission
-                        #send data 
-                        if (total_seq*SEND_LENGTH > len(content)):
-                            print 'total_seq is %d' % total_seq
-                            if (base == nextseqnum):
-                                print "File transmission finished\n"
-                                #send finished 
-                                isFinished = True
-                                break
-                        else:
-                            send_buffer = chr(nextseqnum+1) 
-                            isACK[nextseqnum] = False
-                            send_buffer += content[total_seq*SEND_LENGTH:(total_seq+1)*SEND_LENGTH]
-                            print "Send a packet with a sequence of %d\n" % nextseqnum
-                            serverSocket.sendto(send_buffer, clientAddr)
-                            nextseqnum = (nextseqnum + 1) % SEQ_SIZE
-                            total_seq = total_seq + 1
-                            time.sleep(0.5)
-                    #wait for ack 
-                    ready = select.select([serverSocket], [], [], timeout_in_seconds)
-                    if (ready[0]):
-                        #receive ack
-                        recv_buffer, clientAddr = serverSocket.recvfrom(BUFFER_LENGTH)
-                        AckHandle(recv_buffer[0]) #str to int !!
-                        #restart timer
-                        wait_counter = 0
-                    else:
-                        #ack is not coming
-                        wait_counter = wait_counter + 1
-                        if (wait_counter > 20): 
-                            retransmit()
-                            #restrart timer
-                            wait_counter = 0             
-    serverSocket.close()    
-    fp.close()
+
 if __name__ == "__main__":
-    main()
+    while (flag1):
+        command = raw_input("\n>> ")
+        if(command.startswith("-testgbn")):
+            print "packet: %.2f; ack: %.2f\n" % (pack_loss_ratio, ack_loss_ratio)
+            clientSocket.sendto("-testgbn", serverAddr)        
+            stage = 0        
+            while(True):
+                clientSocket.setblocking(0)
+                ready = select.select([clientSocket], [], [], TIME_LIMIT)
+                if (ready[0]):
+                    recv_buffer, recv_addr = clientSocket.recvfrom(BUFFER_LENGTH)
+                else:
+                    print ">> timeout.\n"
+                    flag1 = False
+                    break
+                if (stage == 0):
+                    status_code = recv_buffer[0]
+                    if (status_code == 'A'):
+                        send_buffer = 'B'
+                        clientSocket.sendto(send_buffer, serverAddr)
+                        print ">> Connection built.."
+                        stage = 1
+                        expect_seq = 1
+                        last_seq = 0
+                    
+                elif (stage == 1):
+                    # file receiving started 
+                    seq_recv = ord(recv_buffer[0])
+                    isLoss = ifLost(pack_loss_ratio)
+                    if (isLoss):
+                        print ">> Packet #%d: Lost" % seq_recv
+                        continue
+                    else:
+                        print ">> Packet #%d: Received" % seq_recv
+                    #check whether the packet is expected
+                    if (expect_seq == seq_recv):
+                        expect_seq = (expect_seq + 1)
+                        if (expect_seq == SEQ_SIZE):
+                            expect_seq = 1
+                        #print "recv data: %s" % recv_buffer[1:]
+                        fp.write(recv_buffer[1:])
+            
+                        #send back ack 
+                        send_buffer = chr(seq_recv)
+                        last_seq = seq_recv
+                    else:
+                        #packet is not the expected one, send last ack number 
+                        if (last_seq == 0):
+                            #error
+                            continue 
+                        else:
+                            #send last_seq ack
+                            send_buffer = chr(last_seq)
+                    isAckLoss = ifLost(ack_loss_ratio)
+                    if (isAckLoss):
+                        print ">> Ack #%d: Lost\n" % ord(send_buffer)
+                        continue
+                    clientSocket.sendto(send_buffer, serverAddr)
+                    print ">> ACK #%d: Sent\n" % ord(send_buffer)
+                time.sleep(0.5)
+        else:
+            clientSocket.setblocking(1)
+            clientSocket.sendto(command,serverAddr)
+            recv_buffer, recv_addr = clientSocket.recvfrom(BUFFER_LENGTH)
+            print recv_buffer
+            if (recv_buffer == "Bye"):
+                break
+    fp.close()
+   
